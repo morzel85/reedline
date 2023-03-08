@@ -1,18 +1,22 @@
+use crate::{CursorConfig, PromptEditMode, PromptViMode};
+
 use {
     super::utils::{coerce_crlf, line_width},
     crate::{
         menu::{Menu, ReedlineMenu},
         painting::PromptLines,
-        LineBuffer, Prompt,
+        Prompt,
     },
     crossterm::{
-        cursor::{self, MoveTo, MoveUp, RestorePosition, SavePosition},
+        cursor::{self, MoveTo, RestorePosition, SavePosition},
         style::{Attribute, Print, ResetColor, SetAttribute, SetForegroundColor},
         terminal::{self, Clear, ClearType, ScrollUp},
         QueueableCommand, Result,
     },
     std::io::Write,
 };
+#[cfg(feature = "external_printer")]
+use {crate::LineBuffer, crossterm::cursor::MoveUp};
 
 // Returns a string that skips N number of lines with the next offset of lines
 // An offset of 0 would return only one line after skipping the required lines
@@ -130,8 +134,10 @@ impl Painter {
         &mut self,
         prompt: &dyn Prompt,
         lines: &PromptLines,
+        prompt_mode: PromptEditMode,
         menu: Option<&ReedlineMenu>,
         use_ansi_coloring: bool,
+        cursor_config: &Option<CursorConfig>,
     ) -> Result<()> {
         self.stdout.queue(cursor::Hide)?;
 
@@ -170,7 +176,20 @@ impl Painter {
         // can print without overwriting the things written during the painting
         self.last_required_lines = required_lines;
 
-        self.stdout.queue(RestorePosition)?.queue(cursor::Show)?;
+        self.stdout.queue(RestorePosition)?;
+
+        if let Some(shapes) = cursor_config {
+            let shape = match &prompt_mode {
+                PromptEditMode::Emacs => shapes.emacs,
+                PromptEditMode::Vi(PromptViMode::Insert) => shapes.vi_insert,
+                PromptEditMode::Vi(PromptViMode::Normal) => shapes.vi_normal,
+                _ => None,
+            };
+            if let Some(shape) = shape {
+                self.stdout.queue(cursor::SetCursorShape(shape))?;
+            }
+        }
+        self.stdout.queue(cursor::Show)?;
 
         self.stdout.flush()
     }
@@ -180,12 +199,18 @@ impl Painter {
         let start_position = self
             .screen_width()
             .saturating_sub(prompt_length_right as u16);
-        let input_width = lines.estimate_first_input_line_width();
+        let screen_width = self.screen_width();
+        let input_width = lines.estimate_right_prompt_line_width(screen_width);
+
+        let mut row = self.prompt_start_row;
+        if lines.right_prompt_on_last_line {
+            row += lines.prompt_lines_with_wrap(screen_width);
+        }
 
         if input_width <= start_position {
             self.stdout
                 .queue(SavePosition)?
-                .queue(cursor::MoveTo(start_position, self.prompt_start_row))?
+                .queue(cursor::MoveTo(start_position, row))?
                 .queue(Print(&coerce_crlf(&lines.prompt_str_right)))?
                 .queue(RestorePosition)?;
         }
@@ -454,7 +479,11 @@ impl Painter {
     }
 
     /// Prints an external message
-    pub fn print_external_message(
+    ///
+    /// This function doesn't flush the buffer. So buffer should be flushed
+    /// afterwards perhaps by repainting the prompt via `repaint_buffer()`.
+    #[cfg(feature = "external_printer")]
+    pub(crate) fn print_external_message(
         &mut self,
         messages: Vec<String>,
         line_buffer: &LineBuffer,
@@ -486,7 +515,11 @@ impl Painter {
         let erase_line = format!("\r{}\r", " ".repeat(self.screen_width().into()));
         for line in messages {
             self.stdout.queue(Print(&erase_line))?;
-            self.paint_line(&line)?;
+            // Note: we don't use `print_line` here because we don't want to
+            // flush right now. The subsequent repaint of the prompt will cause
+            // immediate flush anyways. And if we flush here, every external
+            // print causes visible flicker.
+            self.stdout.queue(Print(line))?.queue(Print("\r\n"))?;
             let new_start = self.prompt_start_row.saturating_add(1);
             let height = self.screen_height();
             if new_start >= height {

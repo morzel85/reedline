@@ -1,3 +1,4 @@
+use crate::CursorConfig;
 #[cfg(feature = "bashisms")]
 use crate::{
     history::SearchFilter,
@@ -33,9 +34,7 @@ use {
         event::{Event, KeyCode, KeyEvent, KeyModifiers},
         terminal, Result,
     },
-    std::{
-        borrow::Borrow, fs::File, io, io::Write, process::Command, time::Duration, time::SystemTime,
-    },
+    std::{fs::File, io, io::Write, process::Command, time::Duration, time::SystemTime},
 };
 
 // The POLL_WAIT is used to specify for how long the POLL should wait for
@@ -128,6 +127,9 @@ pub struct Reedline {
     // Text editor used to open the line buffer for editing
     buffer_editor: Option<BufferEditor>,
 
+    // Use different cursors depending on the current edit mode
+    cursor_shapes: Option<CursorConfig>,
+
     #[cfg(feature = "external_printer")]
     external_printer: Option<ExternalPrinter<String>>,
 }
@@ -149,13 +151,13 @@ impl Reedline {
     /// Create a new [`Reedline`] engine with a local [`History`] that is not synchronized to a file.
     #[must_use]
     pub fn create() -> Self {
-        let history = Box::new(FileBackedHistory::default());
+        let history = Box::<FileBackedHistory>::default();
         let painter = Painter::new(std::io::BufWriter::new(std::io::stderr()));
-        let buffer_highlighter = Box::new(ExampleHighlighter::default());
-        let completer = Box::new(DefaultCompleter::default());
+        let buffer_highlighter = Box::<ExampleHighlighter>::default();
+        let completer = Box::<DefaultCompleter>::default();
         let hinter = None;
         let validator = None;
-        let edit_mode = Box::new(Emacs::default());
+        let edit_mode = Box::<Emacs>::default();
         let hist_session_id = Self::create_history_session_id();
 
         Reedline {
@@ -179,6 +181,7 @@ impl Reedline {
             use_ansi_coloring: true,
             menus: Vec::new(),
             buffer_editor: None,
+            cursor_shapes: None,
             #[cfg(feature = "external_printer")]
             external_printer: None,
         }
@@ -377,6 +380,14 @@ impl Reedline {
         self
     }
 
+    /// A builder that enables reedline changing the cursor shape based on the current edit mode.
+    /// The current implementation sets the cursor shape when drawing the prompt.
+    /// Do not use this if the cursor shape is set elsewhere, e.g. in the terminal settings or by ansi escape sequences.
+    pub fn with_cursor_config(mut self, cursor_shapes: CursorConfig) -> Self {
+        self.cursor_shapes = Some(cursor_shapes);
+        self
+    }
+
     /// Returns the corresponding expected prompt style for the given edit mode
     pub fn prompt_edit_mode(&self) -> PromptEditMode {
         self.edit_mode.edit_mode()
@@ -398,6 +409,11 @@ impl Reedline {
     /// Read-only view of the history
     pub fn history(&self) -> &dyn History {
         &*self.history
+    }
+
+    /// Mutable view of the history
+    pub fn history_mut(&mut self) -> &mut dyn History {
+        &mut *self.history
     }
 
     /// Update the underlying [`History`] to/from disk
@@ -581,21 +597,17 @@ impl Reedline {
 
     fn handle_event(&mut self, prompt: &dyn Prompt, event: ReedlineEvent) -> Result<EventStatus> {
         if self.input_mode == InputMode::HistorySearch {
-            self.handle_history_search_event(prompt, event)
+            self.handle_history_search_event(event)
         } else {
             self.handle_editor_event(prompt, event)
         }
     }
 
-    fn handle_history_search_event(
-        &mut self,
-        prompt: &dyn Prompt,
-        event: ReedlineEvent,
-    ) -> io::Result<EventStatus> {
+    fn handle_history_search_event(&mut self, event: ReedlineEvent) -> io::Result<EventStatus> {
         match event {
             ReedlineEvent::UntilFound(events) => {
                 for event in events {
-                    match self.handle_history_search_event(prompt, event)? {
+                    match self.handle_history_search_event(event)? {
                         EventStatus::Inapplicable => {
                             // Try again with the next event handler
                         }
@@ -629,7 +641,10 @@ impl Reedline {
                 self.painter.clear_scrollback()?;
                 Ok(EventStatus::Handled)
             }
-            ReedlineEvent::Enter | ReedlineEvent::HistoryHintComplete => {
+            ReedlineEvent::Enter
+            | ReedlineEvent::HistoryHintComplete
+            | ReedlineEvent::Submit
+            | ReedlineEvent::SubmitOrNewline => {
                 if let Some(string) = self.history_cursor.string_at_cursor() {
                     self.editor
                         .set_buffer(string, UndoBehavior::CreateUndoPoint);
@@ -692,8 +707,7 @@ impl Reedline {
             | ReedlineEvent::MenuLeft
             | ReedlineEvent::MenuRight
             | ReedlineEvent::MenuPageNext
-            | ReedlineEvent::MenuPagePrevious
-            | ReedlineEvent::RecordToTill => Ok(EventStatus::Inapplicable),
+            | ReedlineEvent::MenuPagePrevious => Ok(EventStatus::Inapplicable),
         }
     }
 
@@ -849,7 +863,9 @@ impl Reedline {
                 self.painter.clear_scrollback()?;
                 Ok(EventStatus::Handled)
             }
-            ReedlineEvent::Enter => {
+            ReedlineEvent::Enter | ReedlineEvent::Submit | ReedlineEvent::SubmitOrNewline
+                if self.menus.iter().any(|menu| menu.is_active()) =>
+            {
                 for menu in self.menus.iter_mut() {
                     if menu.is_active() {
                         menu.replace_in_buffer(&mut self.editor);
@@ -858,7 +874,9 @@ impl Reedline {
                         return Ok(EventStatus::Handled);
                     }
                 }
-
+                unreachable!()
+            }
+            ReedlineEvent::Enter => {
                 #[cfg(feature = "bashisms")]
                 if let Some(event) = self.parse_bang_command() {
                     return self.handle_editor_event(prompt, event);
@@ -866,22 +884,34 @@ impl Reedline {
 
                 let buffer = self.editor.get_buffer().to_string();
                 match self.validator.as_mut().map(|v| v.validate(&buffer)) {
-                    None | Some(ValidationResult::Complete) => {
-                        self.hide_hints = true;
-                        // Additional repaint to show the content without hints etc.
-                        self.repaint(prompt)?;
-                        let buf = self.editor.get_buffer();
-                        if !buf.is_empty() {
-                            let mut entry = HistoryItem::from_command_line(buf);
-                            entry.session_id = self.history_session_id;
-                            let entry = self.history.save(entry).expect("todo: error handling");
-                            self.history_last_run_id = entry.id;
-                        }
-                        self.run_edit_commands(&[EditCommand::Clear]);
-                        self.editor.reset_undo_stack();
+                    None | Some(ValidationResult::Complete) => Ok(self.submit_buffer(prompt)?),
+                    Some(ValidationResult::Incomplete) => {
+                        self.run_edit_commands(&[EditCommand::InsertNewline]);
 
-                        Ok(EventStatus::Exits(Signal::Success(buffer)))
+                        Ok(EventStatus::Handled)
                     }
+                }
+            }
+            ReedlineEvent::Submit => {
+                #[cfg(feature = "bashisms")]
+                if let Some(event) = self.parse_bang_command() {
+                    return self.handle_editor_event(prompt, event);
+                }
+                Ok(self.submit_buffer(prompt)?)
+            }
+            ReedlineEvent::SubmitOrNewline => {
+                #[cfg(feature = "bashisms")]
+                if let Some(event) = self.parse_bang_command() {
+                    return self.handle_editor_event(prompt, event);
+                }
+                let cursor_position_in_buffer = self.editor.insertion_point();
+                let buffer = self.editor.get_buffer().to_string();
+                if cursor_position_in_buffer < buffer.len() {
+                    self.run_edit_commands(&[EditCommand::InsertNewline]);
+                    return Ok(EventStatus::Handled);
+                }
+                match self.validator.as_mut().map(|v| v.validate(&buffer)) {
+                    None | Some(ValidationResult::Complete) => Ok(self.submit_buffer(prompt)?),
                     Some(ValidationResult::Incomplete) => {
                         self.run_edit_commands(&[EditCommand::InsertNewline]);
 
@@ -897,25 +927,43 @@ impl Reedline {
                 self.run_edit_commands(&commands);
                 if let Some(menu) = self.menus.iter_mut().find(|men| men.is_active()) {
                     if self.quick_completions && menu.can_quick_complete() {
-                        menu.menu_event(MenuEvent::Edit(self.quick_completions));
-                        menu.update_values(
-                            &mut self.editor,
-                            self.completer.as_mut(),
-                            self.history.as_ref(),
-                        );
-
-                        if menu.get_values().len() == 1 {
-                            return self.handle_editor_event(prompt, ReedlineEvent::Enter);
+                        match commands.first() {
+                            Some(&EditCommand::Backspace)
+                            | Some(&EditCommand::BackspaceWord)
+                            | Some(&EditCommand::MoveToLineStart) => {
+                                menu.menu_event(MenuEvent::Deactivate)
+                            }
+                            _ => {
+                                menu.menu_event(MenuEvent::Edit(self.quick_completions));
+                                menu.update_values(
+                                    &mut self.editor,
+                                    self.completer.as_mut(),
+                                    self.history.as_ref(),
+                                );
+                                if let Some(&EditCommand::Complete) = commands.first() {
+                                    if menu.get_values().len() == 1 {
+                                        return self
+                                            .handle_editor_event(prompt, ReedlineEvent::Enter);
+                                    } else if self.partial_completions
+                                        && menu.can_partially_complete(
+                                            self.quick_completions,
+                                            &mut self.editor,
+                                            self.completer.as_mut(),
+                                            self.history.as_ref(),
+                                        )
+                                    {
+                                        return Ok(EventStatus::Handled);
+                                    }
+                                }
+                            }
                         }
                     }
-
                     if self.editor.line_buffer().get_buffer().is_empty() {
                         menu.menu_event(MenuEvent::Deactivate);
                     } else {
                         menu.menu_event(MenuEvent::Edit(self.quick_completions));
                     }
                 }
-
                 Ok(EventStatus::Handled)
             }
             ReedlineEvent::OpenEditor => self.open_editor().map(|_| EventStatus::Handled),
@@ -990,9 +1038,7 @@ impl Reedline {
                 // Exhausting the event handlers is still considered handled
                 Ok(EventStatus::Inapplicable)
             }
-            ReedlineEvent::None | ReedlineEvent::Mouse | ReedlineEvent::RecordToTill => {
-                Ok(EventStatus::Inapplicable)
-            }
+            ReedlineEvent::None | ReedlineEvent::Mouse => Ok(EventStatus::Inapplicable),
         }
     }
 
@@ -1295,15 +1341,19 @@ impl Reedline {
             None => Ok(()),
             Some(BufferEditor { editor, extension }) => {
                 let temp_directory = std::env::temp_dir();
-                let temp_file = temp_directory.join(format!("reedline_buffer.{}", extension));
+                let temp_file = temp_directory.join(format!("reedline_buffer.{extension}"));
 
                 {
                     let mut file = File::create(temp_file.clone())?;
                     write!(file, "{}", self.editor.get_buffer())?;
                 }
 
+                let mut ed = editor.split(' ');
+                let command = ed.next();
+
                 {
-                    let mut process = Command::new(editor);
+                    let mut process = Command::new(command.unwrap_or(editor));
+                    process.args(ed);
                     process.arg(temp_file.as_path());
 
                     let mut child = process.spawn()?;
@@ -1357,8 +1407,14 @@ impl Reedline {
                 "",
             );
 
-            self.painter
-                .repaint_buffer(prompt, &lines, None, self.use_ansi_coloring)?;
+            self.painter.repaint_buffer(
+                prompt,
+                &lines,
+                self.prompt_edit_mode(),
+                None,
+                self.use_ansi_coloring,
+                &self.cursor_shapes,
+            )?;
         }
 
         Ok(())
@@ -1376,7 +1432,7 @@ impl Reedline {
             .highlight(buffer_to_paint, cursor_position_in_buffer)
             .render_around_insertion_point(
                 cursor_position_in_buffer,
-                prompt.render_prompt_multiline_indicator().borrow(),
+                prompt,
                 self.use_ansi_coloring,
             );
 
@@ -1419,8 +1475,14 @@ impl Reedline {
 
         let menu = self.menus.iter().find(|menu| menu.is_active());
 
-        self.painter
-            .repaint_buffer(prompt, &lines, menu, self.use_ansi_coloring)
+        self.painter.repaint_buffer(
+            prompt,
+            &lines,
+            self.prompt_edit_mode(),
+            menu,
+            self.use_ansi_coloring,
+            &self.cursor_shapes,
+        )
     }
 
     /// Adds an external printer
@@ -1451,6 +1513,23 @@ impl Reedline {
             }
         }
         Ok(messages)
+    }
+
+    fn submit_buffer(&mut self, prompt: &dyn Prompt) -> io::Result<EventStatus> {
+        let buffer = self.editor.get_buffer().to_string();
+        self.hide_hints = true;
+        // Additional repaint to show the content without hints etc.
+        self.repaint(prompt)?;
+        if !buffer.is_empty() {
+            let mut entry = HistoryItem::from_command_line(&buffer);
+            entry.session_id = self.history_session_id;
+            let entry = self.history.save(entry).expect("todo: error handling");
+            self.history_last_run_id = entry.id;
+        }
+        self.run_edit_commands(&[EditCommand::Clear]);
+        self.editor.reset_undo_stack();
+
+        Ok(EventStatus::Exits(Signal::Success(buffer)))
     }
 }
 

@@ -9,7 +9,7 @@ use strum::IntoEnumIterator;
 struct ReedLineCrossTermKeyCode(crossterm::event::KeyCode);
 impl ReedLineCrossTermKeyCode {
     fn iterator() -> std::slice::Iter<'static, ReedLineCrossTermKeyCode> {
-        static KEYCODE: [ReedLineCrossTermKeyCode; 18] = [
+        static KEYCODE: [ReedLineCrossTermKeyCode; 19] = [
             ReedLineCrossTermKeyCode(KeyCode::Backspace),
             ReedLineCrossTermKeyCode(KeyCode::Enter),
             ReedLineCrossTermKeyCode(KeyCode::Left),
@@ -25,6 +25,7 @@ impl ReedLineCrossTermKeyCode {
             ReedLineCrossTermKeyCode(KeyCode::Delete),
             ReedLineCrossTermKeyCode(KeyCode::Insert),
             ReedLineCrossTermKeyCode(KeyCode::F(1)),
+            ReedLineCrossTermKeyCode(KeyCode::Char(' ')),
             ReedLineCrossTermKeyCode(KeyCode::Char('a')),
             ReedLineCrossTermKeyCode(KeyCode::Null),
             ReedLineCrossTermKeyCode(KeyCode::Esc),
@@ -52,6 +53,7 @@ impl Display for ReedLineCrossTermKeyCode {
                 KeyCode::Delete => write!(f, "Delete"),
                 KeyCode::Insert => write!(f, "Insert"),
                 KeyCode::F(_) => write!(f, "F<number>"),
+                KeyCode::Char(' ') => write!(f, "Space"),
                 KeyCode::Char(_) => write!(f, "Char_<letter>"),
                 KeyCode::Null => write!(f, "Null"),
                 KeyCode::Esc => write!(f, "Esc"),
@@ -77,7 +79,7 @@ pub fn get_reedline_prompt_edit_modes() -> Vec<String> {
 /// Return a `Vec<String>` of the Reedline `KeyCode`s
 pub fn get_reedline_keycodes() -> Vec<String> {
     ReedLineCrossTermKeyCode::iterator()
-        .map(|kc| format!("{}", kc))
+        .map(|kc| format!("{kc}"))
         .collect()
 }
 
@@ -119,7 +121,7 @@ fn get_keybinding_strings(
                 mode.to_string(),
                 format!("{:?}", combination.modifier),
                 format!("{:?}", combination.key_code),
-                format!("{:?}", event),
+                format!("{event:?}"),
             )
         })
         .collect();

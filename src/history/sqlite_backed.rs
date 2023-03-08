@@ -136,6 +136,20 @@ impl History for SqliteBackedHistory {
         Ok(())
     }
 
+    fn clear(&mut self) -> Result<()> {
+        self.db
+            .execute("delete from history", params![])
+            .map_err(map_sqlite_err)?;
+
+        // VACUUM to ensure that sensitive data is completely erased
+        // instead of being marked as available for reuse
+        self.db
+            .execute("VACUUM", params![])
+            .map_err(map_sqlite_err)?;
+
+        Ok(())
+    }
+
     fn delete(&mut self, h: HistoryItemId) -> Result<()> {
         let changed = self
             .db
@@ -157,8 +171,7 @@ impl History for SqliteBackedHistory {
 fn map_sqlite_err(err: rusqlite::Error) -> ReedlineError {
     // TODO: better error mapping
     ReedlineError(ReedlineErrorVariants::HistoryDatabaseError(format!(
-        "{:?}",
-        err
+        "{err:?}"
     )))
 }
 
@@ -173,10 +186,7 @@ impl SqliteBackedHistory {
     pub fn with_file(file: PathBuf) -> Result<Self> {
         if let Some(base_dir) = file.parent() {
             std::fs::create_dir_all(base_dir).map_err(|e| {
-                ReedlineError(ReedlineErrorVariants::HistoryDatabaseError(format!(
-                    "{}",
-                    e
-                )))
+                ReedlineError(ReedlineErrorVariants::HistoryDatabaseError(format!("{e}")))
             })?;
         }
         let db = Connection::open(&file).map_err(map_sqlite_err)?;

@@ -3,7 +3,7 @@
 ![GitHub](https://img.shields.io/github/license/nushell/reedline)
 [![Crates.io](https://img.shields.io/crates/v/reedline)](https://crates.io/crates/reedline)
 [![docs.rs](https://img.shields.io/docsrs/reedline)](https://docs.rs/reedline/)
-![GitHub Workflow Status](https://img.shields.io/github/workflow/status/nushell/reedline/continuous-integration)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/nushell/reedline/ci.yml?branch=main)
 [![Discord](https://img.shields.io/discord/601130461678272522.svg?logo=discord)](https://discord.gg/NtAbbGn)
 
 ## Introduction
@@ -37,22 +37,22 @@ For the full documentation visit <https://docs.rs/reedline>. The examples should
 // Create a default reedline object to handle user input
 
 use reedline::{DefaultPrompt, Reedline, Signal};
-use std::io;
 
-fn main() -> io::Result<()> {
-    let mut line_editor = Reedline::create()?;
-    let prompt = DefaultPrompt::default();
+let mut line_editor = Reedline::create();
+let prompt = DefaultPrompt::default();
 
-    loop {
-        let sig = line_editor.read_line(&prompt)?;
-        match sig {
-            Signal::Success(buffer) => {
-                println!("We processed: {}", buffer);
-            }
-            Signal::CtrlD | Signal::CtrlC => {
-                println!("\nAborted!");
-                break Ok(());
-            }
+loop {
+    let sig = line_editor.read_line(&prompt);
+    match sig {
+        Ok(Signal::Success(buffer)) => {
+            println!("We processed: {}", buffer);
+        }
+        Ok(Signal::CtrlD) | Ok(Signal::CtrlC) => {
+            println!("\nAborted!");
+            break;
+        }
+        x => {
+            println!("Event: {:?}", x);
         }
     }
 }
@@ -64,22 +64,23 @@ fn main() -> io::Result<()> {
 // Configure reedline with custom keybindings
 
 //Cargo.toml
-//  [dependencies]
-//  crossterm = "*"
+//    [dependencies]
+//    crossterm = "*"
 
 use {
   crossterm::event::{KeyCode, KeyModifiers},
-  reedline::{default_emacs_keybindings, EditCommand, Reedline},
+  reedline::{default_emacs_keybindings, EditCommand, Reedline, Emacs, ReedlineEvent},
 };
 
 let mut keybindings = default_emacs_keybindings();
 keybindings.add_binding(
-  KeyModifiers::ALT,
-  KeyCode::Char('m'),
-  vec![EditCommand::BackspaceWord],
+    KeyModifiers::ALT,
+    KeyCode::Char('m'),
+    ReedlineEvent::Edit(vec![EditCommand::BackspaceWord]),
 );
+let edit_mode = Box::new(Emacs::new(keybindings));
 
-let mut line_editor = Reedline::create().with_keybindings(keybindings);
+let mut line_editor = Reedline::create().with_edit_mode(edit_mode);
 ```
 
 ### Integrate with `History`
@@ -119,7 +120,7 @@ Reedline::create().with_highlighter(Box::new(ExampleHighlighter::new(commands)))
 ```rust
 // Create a reedline object with tab completions support
 
-use reedline::{ColumnarMenu, DefaultCompleter, Reedline, ReedlineMenu};
+use reedline::{default_emacs_keybindings, ColumnarMenu, DefaultCompleter, Emacs, KeyCode, KeyModifiers, Reedline, ReedlineEvent, ReedlineMenu};
 
 let commands = vec![
   "test".into(),
@@ -130,9 +131,23 @@ let commands = vec![
 let completer = Box::new(DefaultCompleter::new_with_wordlen(commands.clone(), 2));
 // Use the interactive menu to select options from the completer
 let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
+// Set up the required keybindings
+let mut keybindings = default_emacs_keybindings();
+keybindings.add_binding(
+    KeyModifiers::NONE,
+    KeyCode::Tab,
+    ReedlineEvent::UntilFound(vec![
+        ReedlineEvent::Menu("completion_menu".to_string()),
+        ReedlineEvent::MenuNext,
+    ]),
+);
 
-let mut line_editor =
-Reedline::create().with_completer(completer).with_menu(ReedlineMenu::EngineCompleter(completion_menu));
+let edit_mode = Box::new(Emacs::new(keybindings));
+
+let mut line_editor = Reedline::create()
+    .with_completer(completer)
+    .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
+    .with_edit_mode(edit_mode);
 ```
 
 ### Integrate with `Hinter` for fish-style history autosuggestions

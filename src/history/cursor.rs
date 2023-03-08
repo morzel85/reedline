@@ -106,9 +106,9 @@ mod tests {
     use super::*;
 
     fn create_history() -> (Box<dyn History>, HistoryCursor) {
-        #[cfg(feature = "sqlite")]
+        #[cfg(any(feature = "sqlite", feature = "sqlite-dynlib"))]
         let hist = Box::new(SqliteBackedHistory::in_memory().unwrap());
-        #[cfg(not(feature = "sqlite"))]
+        #[cfg(not(any(feature = "sqlite", feature = "sqlite-dynlib")))]
         let hist = Box::new(FileBackedHistory::default());
         (
             hist,
@@ -188,7 +188,7 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(not(feature = "sqlite"))]
+    #[cfg(not(any(feature = "sqlite", feature = "sqlite-dynlib")))]
     #[test]
     fn appends_only_unique() -> Result<()> {
         let (mut hist, _) = create_history();
@@ -411,7 +411,7 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(not(feature = "sqlite"))]
+    #[cfg(not(any(feature = "sqlite", feature = "sqlite-dynlib")))]
     #[test]
     fn truncates_file_to_capacity() -> Result<()> {
         use tempfile::tempdir;
@@ -557,10 +557,10 @@ mod tests {
                 let hfile = histfile.clone();
                 std::thread::spawn(move || {
                     let (mut hist, _) = create_history_at(cap, &hfile);
-                    hist.save(HistoryItem::from_command_line(&format!("A{}", i)))
+                    hist.save(HistoryItem::from_command_line(format!("A{i}")))
                         .unwrap();
                     hist.sync().unwrap();
-                    hist.save(HistoryItem::from_command_line(&format!("B{}", i)))
+                    hist.save(HistoryItem::from_command_line(format!("B{i}")))
                         .unwrap();
                 })
             })
@@ -580,8 +580,8 @@ mod tests {
         );
 
         for i in 0..num_threads {
-            assert!(actual.contains(&format!("A{}", i)),);
-            assert!(actual.contains(&format!("B{}", i)),);
+            assert!(actual.contains(&format!("A{i}")),);
+            assert!(actual.contains(&format!("B{i}")),);
         }
 
         tmp.close().unwrap();

@@ -15,24 +15,24 @@
 //!
 //! use reedline::{DefaultPrompt, Reedline, Signal};
 //!
-//!  let mut line_editor = Reedline::create();
-//!  let prompt = DefaultPrompt::default();
+//! let mut line_editor = Reedline::create();
+//! let prompt = DefaultPrompt::default();
 //!
-//!  loop {
-//!      let sig = line_editor.read_line(&prompt);
-//!      match sig {
-//!          Ok(Signal::Success(buffer)) => {
-//!              println!("We processed: {}", buffer);
-//!          }
-//!          Ok(Signal::CtrlD) | Ok(Signal::CtrlC) => {
-//!              println!("\nAborted!");
-//!              break;
-//!          }
-//!          x => {
-//!              println!("Event: {:?}", x);
-//!          }
-//!      }
-//!  }
+//! loop {
+//!     let sig = line_editor.read_line(&prompt);
+//!     match sig {
+//!         Ok(Signal::Success(buffer)) => {
+//!             println!("We processed: {}", buffer);
+//!         }
+//!         Ok(Signal::CtrlD) | Ok(Signal::CtrlC) => {
+//!             println!("\nAborted!");
+//!             break;
+//!         }
+//!         x => {
+//!             println!("Event: {:?}", x);
+//!         }
+//!     }
+//! }
 //! ```
 //! ## Integrate with custom keybindings
 //!
@@ -96,7 +96,7 @@
 //! ```rust
 //! // Create a reedline object with tab completions support
 //!
-//! use reedline::{ColumnarMenu, DefaultCompleter, Reedline, ReedlineMenu};
+//! use reedline::{default_emacs_keybindings, ColumnarMenu, DefaultCompleter, Emacs, KeyCode, KeyModifiers, Reedline, ReedlineEvent, ReedlineMenu};
 //!
 //! let commands = vec![
 //!   "test".into(),
@@ -107,9 +107,23 @@
 //! let completer = Box::new(DefaultCompleter::new_with_wordlen(commands.clone(), 2));
 //! // Use the interactive menu to select options from the completer
 //! let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
+//! // Set up the required keybindings
+//! let mut keybindings = default_emacs_keybindings();
+//! keybindings.add_binding(
+//!     KeyModifiers::NONE,
+//!     KeyCode::Tab,
+//!     ReedlineEvent::UntilFound(vec![
+//!         ReedlineEvent::Menu("completion_menu".to_string()),
+//!         ReedlineEvent::MenuNext,
+//!     ]),
+//! );
 //!
-//! let mut line_editor =
-//! Reedline::create().with_completer(completer).with_menu(ReedlineMenu::EngineCompleter(completion_menu));
+//! let edit_mode = Box::new(Emacs::new(keybindings));
+//!
+//! let mut line_editor = Reedline::create()
+//!     .with_completer(completer)
+//!     .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
+//!     .with_edit_mode(edit_mode);
 //! ```
 //!
 //! ## Integrate with [`Hinter`] for fish-style history autosuggestions
@@ -209,7 +223,6 @@
 //! - [rustyline](https://crates.io/crates/rustyline)
 //!
 #![warn(rustdoc::missing_crate_level_docs)]
-#![warn(rustdoc::missing_doc_code_examples)]
 #![warn(missing_docs)]
 // #![deny(warnings)]
 mod core_editor;
@@ -229,7 +242,7 @@ mod result;
 pub(crate) use result::Result;
 
 mod history;
-#[cfg(feature = "sqlite")]
+#[cfg(any(feature = "sqlite", feature = "sqlite-dynlib"))]
 pub use history::SqliteBackedHistory;
 pub use history::{
     CommandLineSearch, FileBackedHistory, History, HistoryItem, HistoryItemId,
@@ -239,14 +252,14 @@ pub use history::{
 
 mod prompt;
 pub use prompt::{
-    DefaultPrompt, Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus,
-    PromptViMode,
+    DefaultPrompt, DefaultPromptSegment, Prompt, PromptEditMode, PromptHistorySearch,
+    PromptHistorySearchStatus, PromptViMode,
 };
 
 mod edit_mode;
 pub use edit_mode::{
     default_emacs_keybindings, default_vi_insert_keybindings, default_vi_normal_keybindings,
-    EditMode, Emacs, Keybindings, Vi,
+    CursorConfig, EditMode, Emacs, Keybindings, Vi,
 };
 
 mod highlighter;

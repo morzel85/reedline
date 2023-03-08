@@ -5,7 +5,7 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub(crate) enum ReedlineErrorVariants {
     // todo: we should probably be more specific here
-    #[cfg(feature = "sqlite")]
+    #[cfg(any(feature = "sqlite", feature = "sqlite-dynlib"))]
     #[error("error within history database: {0}")]
     HistoryDatabaseError(String),
     #[error("error within history: {0}")]
@@ -15,6 +15,8 @@ pub(crate) enum ReedlineErrorVariants {
         history: &'static str,
         feature: &'static str,
     },
+    #[error("I/O error: {0}")]
+    IOError(std::io::Error),
 }
 
 /// separate struct to not expose anything to the public (for now)

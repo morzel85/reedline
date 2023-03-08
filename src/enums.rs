@@ -99,6 +99,9 @@ pub enum EditCommand {
     /// Clear to the end of the current line
     ClearToLineEnd,
 
+    /// Insert completion: entire completion if there is only one possibility, or else up to shared prefix.
+    Complete,
+
     /// Cut the current line
     CutCurrentLine,
 
@@ -216,6 +219,7 @@ impl Display for EditCommand {
             EditCommand::DeleteWord => write!(f, "DeleteWord"),
             EditCommand::Clear => write!(f, "Clear"),
             EditCommand::ClearToLineEnd => write!(f, "ClearToLineEnd"),
+            EditCommand::Complete => write!(f, "Complete"),
             EditCommand::CutCurrentLine => write!(f, "CutCurrentLine"),
             EditCommand::CutFromStart => write!(f, "CutFromStart"),
             EditCommand::CutFromLineStart => write!(f, "CutFromLineStart"),
@@ -287,6 +291,7 @@ impl EditCommand {
             | EditCommand::DeleteWord
             | EditCommand::Clear
             | EditCommand::ClearToLineEnd
+            | EditCommand::Complete
             | EditCommand::CutCurrentLine
             | EditCommand::CutFromStart
             | EditCommand::CutFromLineStart
@@ -422,6 +427,12 @@ pub enum ReedlineEvent {
     /// Handle enter event
     Enter,
 
+    /// Handle unconditional submit event
+    Submit,
+
+    /// Submit at the end of the *complete* text, otherwise newline
+    SubmitOrNewline,
+
     /// Esc event
     Esc,
 
@@ -497,9 +508,6 @@ pub enum ReedlineEvent {
 
     /// Open text editor
     OpenEditor,
-
-    /// Record vi to or till motion
-    RecordToTill,
 }
 
 impl Display for ReedlineEvent {
@@ -513,6 +521,8 @@ impl Display for ReedlineEvent {
             ReedlineEvent::ClearScreen => write!(f, "ClearScreen"),
             ReedlineEvent::ClearScrollback => write!(f, "ClearScrollback"),
             ReedlineEvent::Enter => write!(f, "Enter"),
+            ReedlineEvent::Submit => write!(f, "Submit"),
+            ReedlineEvent::SubmitOrNewline => write!(f, "SubmitOrNewline"),
             ReedlineEvent::Esc => write!(f, "Esc"),
             ReedlineEvent::Mouse => write!(f, "Mouse"),
             ReedlineEvent::Resize(_, _) => write!(f, "Resize <int> <int>"),
@@ -541,7 +551,6 @@ impl Display for ReedlineEvent {
             ReedlineEvent::MenuPagePrevious => write!(f, "MenuPagePrevious"),
             ReedlineEvent::ExecuteHostCommand(_) => write!(f, "ExecuteHostCommand"),
             ReedlineEvent::OpenEditor => write!(f, "OpenEditor"),
-            ReedlineEvent::RecordToTill => write!(f, "RecordToTill"),
         }
     }
 }

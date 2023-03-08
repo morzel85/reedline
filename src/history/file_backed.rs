@@ -178,6 +178,19 @@ impl History for FileBackedHistory {
         ))
     }
 
+    fn clear(&mut self) -> Result<()> {
+        self.entries.clear();
+        self.len_on_disk = 0;
+
+        if let Some(file) = &self.file {
+            if let Err(err) = std::fs::remove_file(file) {
+                return Err(ReedlineError(ReedlineErrorVariants::IOError(err)));
+            }
+        }
+
+        Ok(())
+    }
+
     fn delete(&mut self, _h: super::HistoryItemId) -> Result<()> {
         Err(ReedlineError(
             ReedlineErrorVariants::HistoryFeatureUnsupported {
@@ -226,7 +239,7 @@ impl History for FileBackedHistory {
             {
                 let mut writer = BufWriter::new(writer_guard.deref_mut());
                 if truncate {
-                    writer.seek(SeekFrom::Start(0))?;
+                    writer.rewind()?;
 
                     for line in &foreign_entries {
                         writer.write_all(encode_entry(line).as_bytes())?;
