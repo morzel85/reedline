@@ -27,7 +27,7 @@ impl Default for Editor {
 
 impl Editor {
     /// Get the current [`LineBuffer`]
-    pub fn line_buffer(&self) -> &LineBuffer {
+    pub const fn line_buffer(&self) -> &LineBuffer {
         &self.line_buffer
     }
 
@@ -556,7 +556,7 @@ mod test {
     }
 
     #[test]
-    fn test_undo_insert_works_on_work_boundries() {
+    fn test_undo_insert_works_on_work_boundaries() {
         let mut editor = editor_with("This is  a");
         for cmd in str_to_edit_commands(" test") {
             editor.run_edit_command(&cmd);

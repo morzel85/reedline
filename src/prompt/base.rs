@@ -34,7 +34,7 @@ pub struct PromptHistorySearch {
 
 impl PromptHistorySearch {
     /// A constructor to create a history search
-    pub fn new(status: PromptHistorySearchStatus, search_term: String) -> Self {
+    pub const fn new(status: PromptHistorySearchStatus, search_term: String) -> Self {
         PromptHistorySearch {
             status,
             term: search_term,
@@ -59,19 +59,14 @@ pub enum PromptEditMode {
 }
 
 /// The vi-specific modes that the prompt can be in
-#[derive(Serialize, Deserialize, Clone, Debug, EnumIter)]
+#[derive(Serialize, Deserialize, Clone, Debug, EnumIter, Default)]
 pub enum PromptViMode {
     /// The default mode
+    #[default]
     Normal,
 
     /// Insertion mode
     Insert,
-}
-
-impl Default for PromptViMode {
-    fn default() -> Self {
-        PromptViMode::Normal
-    }
 }
 
 impl Display for PromptEditMode {

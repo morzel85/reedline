@@ -16,7 +16,7 @@ pub struct HistoryCursor {
 }
 
 impl HistoryCursor {
-    pub fn new(query: HistoryNavigationQuery) -> HistoryCursor {
+    pub const fn new(query: HistoryNavigationQuery) -> HistoryCursor {
         HistoryCursor {
             query,
             current: None,
@@ -109,7 +109,7 @@ mod tests {
         #[cfg(any(feature = "sqlite", feature = "sqlite-dynlib"))]
         let hist = Box::new(SqliteBackedHistory::in_memory().unwrap());
         #[cfg(not(any(feature = "sqlite", feature = "sqlite-dynlib")))]
-        let hist = Box::new(FileBackedHistory::default());
+        let hist = Box::<FileBackedHistory>::default();
         (
             hist,
             HistoryCursor::new(HistoryNavigationQuery::Normal(LineBuffer::default())),
