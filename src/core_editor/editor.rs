@@ -1,6 +1,7 @@
 use super::{edit_stack::EditStack, Clipboard, ClipboardMode, LineBuffer};
 use crate::enums::{EditType, UndoBehavior};
 use crate::{core_editor::get_default_clipboard, EditCommand};
+use log::debug;
 
 /// Stateful editor executing changes to the underlying [`LineBuffer`]
 ///
@@ -39,6 +40,8 @@ impl Editor {
     }
 
     pub(crate) fn run_edit_command(&mut self, command: &EditCommand) {
+        debug!("Running editor command: {command}.");
+
         match command {
             EditCommand::MoveToStart => self.line_buffer.move_to_start(),
             EditCommand::MoveToLineStart => self.line_buffer.move_to_line_start(),
