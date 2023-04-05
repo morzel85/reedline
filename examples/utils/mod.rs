@@ -2,7 +2,7 @@ use log::{info, LevelFilter};
 use simplelog::{format_description, ConfigBuilder, WriteLogger};
 use std::fs::OpenOptions;
 
-pub fn init() {
+pub fn logger_init() {
     let config = ConfigBuilder::new()
         .set_time_format_custom(format_description!(
             "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]"

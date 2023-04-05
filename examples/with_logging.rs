@@ -1,4 +1,4 @@
-mod logger;
+mod utils;
 
 use crossterm::cursor::CursorShape;
 use reedline::CursorConfig;
@@ -16,7 +16,7 @@ fn main() -> io::Result<()> {
     println!("Actions are logged into readline.log file (use dev/logger.rs to change file or logging level).");
     println!("You may check the examples directory for more bins that demonstrate various Reedline features.");
 
-    logger::init();
+    utils::logger_init();
 
     let cursor_config = CursorConfig {
         vi_insert: Some(CursorShape::Line),
