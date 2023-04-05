@@ -11,10 +11,9 @@ use std::io;
 fn main() -> io::Result<()> {
     println!("\nHello, Reedline Developer!");
     println!(
-        "This is the default binary (dev/run.rs) that lets you test your Reedline code in the terminal."
+        "This binary lets you test Reedline in the terminal while actions are logged into reedline.log file."
     );
-    println!("Actions are logged into readline.log file (use dev/logger.rs to change file or logging level).");
-    println!("You may check the examples directory for more bins that demonstrate various Reedline features.");
+    println!("You can change the file and log level settings in the logger_init function (examples/utils/mod.rs).");
 
     utils::logger_init();
 

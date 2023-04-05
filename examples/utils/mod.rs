@@ -7,6 +7,8 @@ pub fn logger_init() {
         .set_time_format_custom(format_description!(
             "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]"
         ))
+        .set_time_offset_to_local()
+        .expect("Unable to set local time for logging")
         .build();
 
     let file = OpenOptions::new()
